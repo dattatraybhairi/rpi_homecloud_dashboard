@@ -1,0 +1,6 @@
+{
+  "name": "Cloud Pi SPI Display Studio",
+  "description": "Interactive 3.5-inch RPi4 SPI LCD dashboard for Nextcloud telemetry, featuring Kiosk display mode, live hardware metrics, and standalone Python framebuffer export.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
