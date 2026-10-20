@@ -8,7 +8,6 @@ import {
   Play,
   FileCode2,
   Settings2,
-  AlertTriangle,
 } from 'lucide-react';
 import { CloudPiTelemetry } from './SpiDisplayScreen';
 
@@ -17,6 +16,10 @@ interface RpiDeployPanelProps {
   onEnterKiosk: () => void;
   onApplyPythonTelemetry?: (data: Partial<CloudPiTelemetry>, meta: { pythonVersion: string; execTimeMs: number }) => void;
 }
+
+const GITHUB_REPO_URL = 'https://github.com/dattatraybhairi/rpi_homecloud_dashboard.git';
+const GITHUB_RAW_PY_URL =
+  'https://raw.githubusercontent.com/dattatraybhairi/rpi_homecloud_dashboard/main/cloudpi_spi_display.py';
 
 export const RpiDeployPanel: React.FC<RpiDeployPanelProps> = ({
   onApplyPythonTelemetry,
@@ -36,7 +39,7 @@ export const RpiDeployPanel: React.FC<RpiDeployPanelProps> = ({
   }>({ loading: false });
 
   useEffect(() => {
-    fetch('/cloudpi_spi_display.py')
+    fetch('./cloudpi_spi_display.py')
       .then((r) => r.text())
       .then((txt) => {
         if (txt.includes('#!/usr/bin/env python3')) {
@@ -66,7 +69,7 @@ export const RpiDeployPanel: React.FC<RpiDeployPanelProps> = ({
   const runLivePythonTest = async () => {
     setPythonTestResult({ loading: true });
     try {
-      const res = await fetch('/api/python-telemetry');
+      const res = await fetch('./api/python-telemetry');
       const json = await res.json();
       if (json.ok && json.data) {
         setPythonTestResult({
@@ -94,40 +97,44 @@ export const RpiDeployPanel: React.FC<RpiDeployPanelProps> = ({
       } else {
         setPythonTestResult({ loading: false, error: json.error || 'Execution failed' });
       }
-    } catch (e: any) {
-      setPythonTestResult({ loading: false, error: e?.message || 'Network error' });
+    } catch {
+      setPythonTestResult({
+        loading: false,
+        error: 'Backend endpoint unavailable in static GitHub Pages mode.',
+      });
     }
   };
 
   const getRunCommand = () => {
     const storageArg = storageMount !== '/' ? ` --storage-path ${storageMount}` : '';
     if (driverMode === 'fb') {
-      return `sudo python3 ~/cloudpi_spi_display.py --driver fb --fb ${fbDevice}${storageArg}`;
+      return `sudo python3 cloudpi_spi_display.py --driver fb --fb ${fbDevice}${storageArg}`;
     }
     if (driverMode === 'spidev') {
-      return `sudo python3 ~/cloudpi_spi_display.py --driver spidev${storageArg}`;
+      return `sudo python3 cloudpi_spi_display.py --driver spidev${storageArg}`;
     }
     if (driverMode === 'tk') {
-      return `DISPLAY=:0 python3 ~/cloudpi_spi_display.py --driver tk${storageArg}`;
+      return `DISPLAY=:0 python3 cloudpi_spi_display.py --driver tk${storageArg}`;
     }
-    return `DISPLAY=:0 CLOUDPI_FULLSCREEN=1 python3 ~/cloudpi_spi_display.py --driver pygame${storageArg}`;
+    return `DISPLAY=:0 CLOUDPI_FULLSCREEN=1 python3 cloudpi_spi_display.py --driver pygame${storageArg}`;
   };
 
-  // Encode the Python script into Base64 so the user can paste a single self-contained command over SSH
-  // without curl ever hitting the Cloud Run authentication login page!
-  const base64EncodedScript = pythonSourceCode
-    ? btoa(unescape(encodeURIComponent(pythonSourceCode)))
-    : '';
+  const gitCloneCommands = `# Clone repository on Raspberry Pi 4
+git clone ${GITHUB_REPO_URL}
+cd rpi_homecloud_dashboard
+chmod +x setup_rpi.sh cloudpi_spi_display.py
+./setup_rpi.sh`;
 
-  const sshSelfContainedOneLiner = base64EncodedScript
-    ? `echo "${base64EncodedScript}" | base64 -d > ~/cloudpi_spi_display.py && chmod +x ~/cloudpi_spi_display.py && python3 -m py_compile ~/cloudpi_spi_display.py && echo "cloudpi_spi_display.py created and verified!"`
-    : '';
+  const rawCurlCommands = `# Or download cloudpi_spi_display.py directly from GitHub Raw
+curl -sSL ${GITHUB_RAW_PY_URL} -o cloudpi_spi_display.py
+chmod +x cloudpi_spi_display.py
+${getRunCommand()}`;
 
   const sshHeredocBundle = `cat << 'EOF' > ~/cloudpi_spi_display.py
 ${pythonSourceCode}
 EOF
 chmod +x ~/cloudpi_spi_display.py
-${getRunCommand()}`;
+${getRunCommand().replace('cloudpi_spi_display.py', '~/cloudpi_spi_display.py')}`;
 
   const systemdUnit = `[Unit]
 Description=Cloud Pi 3.5-inch SPI Nextcloud Display (Python)
@@ -136,8 +143,8 @@ After=network-online.target
 [Service]
 Type=simple
 User=root
-WorkingDirectory=/home/admin
-ExecStart=/usr/bin/${getRunCommand().replace(/^sudo\s+/, '').replace('~/', '/home/admin/')}
+WorkingDirectory=/home/admin/rpi_homecloud_dashboard
+ExecStart=/usr/bin/${getRunCommand().replace(/^sudo\s+/, '').replace('cloudpi_spi_display.py', '/home/admin/rpi_homecloud_dashboard/cloudpi_spi_display.py')}
 Restart=always
 RestartSec=3
 
@@ -151,10 +158,11 @@ WantedBy=multi-user.target`;
         <div>
           <h2 className="text-base font-semibold text-white flex items-center gap-2">
             <FileCode2 className="w-4 h-4 text-emerald-400" />
-            Run on Raspberry Pi 4 with Python (<code className="text-sky-400 font-mono text-sm">cloudpi_spi_display.py</code>)
+            Raspberry Pi 4 Python Runner (<code className="text-sky-400 font-mono text-sm">cloudpi_spi_display.py</code>)
           </h2>
           <p className="text-xs text-slate-400 mt-0.5">
-            Self-contained SSH deployment for <code className="text-emerald-400 font-mono">admin@rpi:~$</code> · No external <code className="text-slate-300 font-mono">curl</code> auth issues.
+            2× supersampled Pillow (<code className="text-slate-300 font-mono">PIL.ImageDraw</code>) vector renderer ·
+            Supports <code className="text-emerald-400 font-mono">/dev/fb1</code> RGB565, <code className="text-sky-400 font-mono">spidev0.0</code>, Pygame &amp; Tkinter.
           </p>
         </div>
 
@@ -168,7 +176,7 @@ WantedBy=multi-user.target`;
                   : 'text-slate-400 hover:text-white'
               }`}
             >
-              1. SSH Paste for admin@rpi
+              1. GitHub &amp; SSH Setup
             </button>
             <button
               onClick={() => setActiveTab('python_source')}
@@ -202,22 +210,9 @@ WantedBy=multi-user.target`;
         </div>
       </div>
 
-      {/* TAB 1: SELF-CONTAINED SSH PASTE FOR ADMIN@RPI */}
+      {/* TAB 1: GITHUB CLONE & SSH COMMANDS */}
       {activeTab === 'python_quickstart' && (
         <div className="mt-4 space-y-4">
-          {/* Explanation of why curl got HTML */}
-          <div className="p-3.5 rounded-lg bg-amber-950/30 border border-amber-500/30 flex items-start gap-3">
-            <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-            <div className="text-xs text-amber-100/90 space-y-1">
-              <div className="font-semibold text-amber-300">
-                Why <code className="font-mono">curl</code> showed <code className="font-mono">SyntaxError: invalid decimal literal (min-height: 100vh;)</code>
-              </div>
-              <p className="text-amber-200/80 leading-relaxed">
-                The preview URL (<code className="font-mono">ais-dev-...run.app</code>) is protected by Google AI Studio browser login, so running <code className="font-mono">curl</code> from <code className="font-mono">admin@rpi</code> downloaded the HTML login page instead of the Python script. Use the <strong>Self-Contained SSH Command</strong> below — it writes the pure Python file directly on your Pi with zero network requests!
-              </p>
-            </div>
-          </div>
-
           {/* Driver & Storage Selector */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3 p-3.5 rounded-lg bg-[#050C18] border border-slate-800/90">
             <div>
@@ -276,72 +271,76 @@ WantedBy=multi-user.target`;
             </div>
           </div>
 
-          {/* Primary Action: Copy 1-Click Self-Contained SSH Command */}
-          <div className="p-4 rounded-xl bg-emerald-950/25 border border-emerald-500/40 space-y-3">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div>
-                <div className="text-sm font-semibold text-white flex items-center gap-2">
-                  <Terminal className="w-4 h-4 text-emerald-400" />
-                  Step 1: Paste this into <code className="text-emerald-300 font-mono">admin@rpi:~$</code> to create &amp; run <code className="text-sky-300 font-mono">cloudpi_spi_display.py</code>
-                </div>
-                <p className="text-xs text-slate-300 mt-0.5">
-                  Writes the complete Python script locally using <code className="font-mono text-emerald-300">cat &lt;&lt; &apos;EOF&apos;</code> and launches it immediately.
-                </p>
-              </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <button
-                  onClick={() => copyText('ssh-heredoc', sshHeredocBundle)}
-                  className="px-4 py-2 text-xs font-semibold rounded-lg bg-emerald-500 text-slate-950 hover:bg-emerald-400 transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 shadow-lg"
-                >
-                  {copiedId === 'ssh-heredoc' ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                  {copiedId === 'ssh-heredoc' ? 'Copied! Paste into admin@rpi' : 'Copy Full SSH Paste Command'}
-                </button>
-              </div>
-            </div>
-
-            {sshSelfContainedOneLiner && (
-              <div className="pt-2 border-t border-emerald-500/20 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                <span className="text-xs text-slate-300">
-                  Or copy as a compact <strong>Base64 One-Liner</strong> (creates &amp; syntax-checks <code className="font-mono text-sky-300">~/cloudpi_spi_display.py</code>):
-                </span>
-                <button
-                  onClick={() => copyText('ssh-b64', `${sshSelfContainedOneLiner} && ${getRunCommand()}`)}
-                  className="px-3 py-1.5 text-xs font-medium rounded-lg border border-emerald-500/40 bg-emerald-500/10 text-emerald-200 hover:bg-emerald-500/20 transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0"
-                >
-                  {copiedId === 'ssh-b64' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                  {copiedId === 'ssh-b64' ? 'Copied Base64 One-Liner' : 'Copy Base64 One-Liner'}
-                </button>
-              </div>
-            )}
-          </div>
-
-          {/* Commands to run after creating the file + Live Python Backend Verification */}
+          {/* Git Clone + Raw Curl Grid */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <div className="p-3.5 rounded-lg bg-[#050A14] border border-slate-800/90 space-y-2">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-white">Run Command on <code className="font-mono text-emerald-400">admin@rpi:~$</code></span>
+                <span className="text-xs font-semibold text-white flex items-center gap-1.5">
+                  <Terminal className="w-3.5 h-3.5 text-emerald-400" />
+                  Option A: Clone GitHub Repository
+                </span>
                 <button
-                  onClick={() => copyText('run-cmd', getRunCommand())}
-                  className="text-xs text-sky-400 hover:text-sky-300 flex items-center gap-1"
+                  onClick={() => copyText('git-clone', gitCloneCommands)}
+                  className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-xs text-sky-300 flex items-center gap-1.5 transition-colors"
                 >
-                  {copiedId === 'run-cmd' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                  {copiedId === 'run-cmd' ? 'Copied' : 'Copy'}
+                  {copiedId === 'git-clone' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                  {copiedId === 'git-clone' ? 'Copied' : 'Copy'}
                 </button>
               </div>
-              <pre className="p-2.5 rounded bg-[#091324] border border-slate-800 text-xs font-mono text-emerald-300 overflow-x-auto">
-                {getRunCommand()}
+              <pre className="p-3 rounded bg-[#091324] border border-slate-800 text-xs font-mono text-slate-200 overflow-x-auto leading-relaxed">
+                {gitCloneCommands}
               </pre>
-              <div className="text-[11px] text-slate-400">
-                Check your Pi&apos;s framebuffer devices anytime with: <code className="font-mono text-slate-200">ls -l /dev/fb* /dev/spidev*</code>
+            </div>
+
+            <div className="p-3.5 rounded-lg bg-[#050A14] border border-slate-800/90 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-white flex items-center gap-1.5">
+                  <Terminal className="w-3.5 h-3.5 text-sky-400" />
+                  Option B: Direct GitHub Raw Download
+                </span>
+                <button
+                  onClick={() => copyText('raw-curl', rawCurlCommands)}
+                  className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-xs text-sky-300 flex items-center gap-1.5 transition-colors"
+                >
+                  {copiedId === 'raw-curl' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                  {copiedId === 'raw-curl' ? 'Copied' : 'Copy'}
+                </button>
+              </div>
+              <pre className="p-3 rounded bg-[#091324] border border-slate-800 text-xs font-mono text-slate-200 overflow-x-auto leading-relaxed">
+                {rawCurlCommands}
+              </pre>
+            </div>
+          </div>
+
+          {/* Offline SSH Paste + Live Python Backend Verification */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="p-3.5 rounded-lg bg-[#050A14] border border-slate-800/90 flex flex-col justify-between gap-2">
+              <div>
+                <div className="text-xs font-semibold text-white">Option C: Self-Contained SSH Paste (Offline)</div>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  Creates <code className="font-mono text-slate-300">~/cloudpi_spi_display.py</code> via <code className="font-mono text-emerald-400">cat &lt;&lt; &apos;EOF&apos;</code> and launches immediately without network dependencies.
+                </p>
+              </div>
+              <div className="flex items-center justify-between gap-2 mt-1">
+                <code className="px-2.5 py-1.5 rounded bg-[#091324] border border-slate-800 text-[11px] font-mono text-emerald-300 truncate">
+                  {getRunCommand()}
+                </code>
+                <button
+                  onClick={() => copyText('ssh-heredoc', sshHeredocBundle)}
+                  className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-emerald-500 text-slate-950 hover:bg-emerald-400 transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0"
+                >
+                  {copiedId === 'ssh-heredoc' ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                  {copiedId === 'ssh-heredoc' ? 'Copied SSH Bundle' : 'Copy SSH Paste Bundle'}
+                </button>
               </div>
             </div>
 
             <div className="p-3.5 rounded-lg bg-[#050A14] border border-slate-800/90 flex flex-col justify-between gap-2">
               <div className="flex items-center justify-between">
                 <div>
-                  <div className="text-xs font-semibold text-white">Test Python 3 Collector Live</div>
+                  <div className="text-xs font-semibold text-white">Test Python 3 Collector</div>
                   <p className="text-[11px] text-slate-400 mt-0.5">
-                    Executes <code className="text-sky-400 font-mono">python3 cloudpi_spi_display.py --json</code> on the server and pushes data to the screen above.
+                    Executes <code className="text-sky-400 font-mono">python3 cloudpi_spi_display.py --json</code> and updates the preview canvas.
                   </p>
                 </div>
                 <button
@@ -350,7 +349,7 @@ WantedBy=multi-user.target`;
                   className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-sky-500 text-slate-950 hover:bg-sky-400 disabled:opacity-50 transition-colors flex items-center gap-1.5 shrink-0"
                 >
                   <Play className="w-3.5 h-3.5" />
-                  {pythonTestResult.loading ? 'Running Python...' : 'Run Python Now'}
+                  {pythonTestResult.loading ? 'Running...' : 'Run Python'}
                 </button>
               </div>
 
@@ -365,7 +364,7 @@ WantedBy=multi-user.target`;
                 </div>
               )}
               {pythonTestResult.error && (
-                <div className="text-xs text-rose-400 font-mono">{pythonTestResult.error}</div>
+                <div className="text-xs text-slate-400 font-mono">{pythonTestResult.error}</div>
               )}
             </div>
           </div>
@@ -378,7 +377,7 @@ WantedBy=multi-user.target`;
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <p className="text-xs text-slate-300">
               Complete <code className="text-sky-400 font-mono">cloudpi_spi_display.py</code> source with 2× supersampled{' '}
-              <code className="text-emerald-400 font-mono">PIL.ImageDraw</code> custom icons, 16-bit RGB565{' '}
+              <code className="text-emerald-400 font-mono">PIL.ImageDraw</code> icons, 16-bit RGB565{' '}
               <code className="text-emerald-400 font-mono">/dev/fb1</code> writer, and direct <code className="text-sky-400 font-mono">ILI9486</code> SPI driver:
             </p>
             <div className="flex items-center gap-2 shrink-0">

@@ -112,7 +112,7 @@ export default function App() {
   // Mode 3: Poll Real Backend Python 3 Script (python/cloudpi_spi_display.py --json)
   const fetchLiveHostTelemetry = useCallback(async () => {
     try {
-      const res = await fetch('/api/python-telemetry');
+      const res = await fetch('./api/python-telemetry');
       if (!res.ok) return;
       const json = await res.json();
       if (!json.ok || !json.data) return;
@@ -295,7 +295,7 @@ export default function App() {
                 }`}
               >
                 <Eye className="w-3.5 h-3.5 text-sky-400" />
-                Compare w/ Uploaded Image
+                Compare Reference
               </button>
             </div>
 
@@ -412,13 +412,13 @@ export default function App() {
 
                 <div className="space-y-2">
                   <div className="text-xs font-medium text-sky-400 flex items-center justify-between">
-                    <span>Your Uploaded Reference Image</span>
+                    <span>Reference UI Image</span>
                     <span className="font-mono text-[11px] text-slate-400">Original PNG</span>
                   </div>
                   <div className="rounded-xl overflow-hidden border border-slate-700 bg-[#07162C] aspect-[3/2] flex items-center justify-center">
                     <img
-                      src="/assets/aistudio/image_03ba6d99.png"
-                      alt="Uploaded Cloud Pi Nextcloud Reference UI"
+                      src="./assets/aistudio/image_03ba6d99.png"
+                      alt="Cloud Pi Nextcloud Reference UI"
                       referrerPolicy="no-referrer"
                       className="w-full h-full object-contain"
                     />
